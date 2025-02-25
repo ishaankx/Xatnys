@@ -1,0 +1,7 @@
+cargo:rerun-if-changed=F:\xatnys\Cargo.toml
+cargo:rustc-link-search=native=F:\xatnys\target\bootimage\bootloader\x86_64-bootloader\release\build\bootloader-b0a86e62b8615bf8\out
+cargo:rustc-link-lib=static=kernel_bin-xatnys
+cargo:rerun-if-env-changed=KERNEL
+cargo:rerun-if-env-changed=KERNEL_MANIFEST
+cargo:rerun-if-changed=\\?\F:\xatnys\target\x86_64\debug\xatnys
+cargo:rerun-if-changed=build.rs
