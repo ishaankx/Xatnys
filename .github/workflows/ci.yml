@@ -3,65 +3,91 @@ name: Xatnys CI/CD
 on:
   push:
     branches:
-      - Wolve
-  pull_request:
-    branches:
-      - Wolve
+      - '*'
+      - '!staging.tmp'
+    tags:
+      - '*'
   schedule:
-    - cron: '40 3 * * *'  # Runs daily at 3:40 AM UTC
-  workflow_dispatch:  # Allows manual runs
+    - cron: '40 3 * * *'  
+  pull_request:
+  workflow_dispatch:
 
 jobs:
   check:
     name: Code Check
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [
+          ubuntu-latest,
+          macos-latest,
+          windows-latest
+        ]
+    runs-on: ${{ matrix.platform }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+
       - name: Install Rust Toolchain
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
           toolchain: nightly
-      - name: Install `rust-src`
-        run: rustup component add rust-src
+
+      - name: Install Rust Components
+        run: |
+          rustup component add rust-src llvm-tools-preview
+          rustup target add x86_64-unknown-none
+
+      - name: Configure Cargo for `build-std`
+        run: |
+          mkdir -p .cargo
+          echo '[unstable]' > .cargo/config.toml
+          echo 'build-std = ["core", "alloc"]' >> .cargo/config.toml
+
       - name: Run `cargo check`
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
+        run: cargo check --target x86_64-unknown-none
 
   test:
     name: Build & Test Kernel
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [
+          ubuntu-latest,
+          macos-latest,
+          windows-latest
+        ]
+    runs-on: ${{ matrix.platform }}
     steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
       - name: Install Rust Toolchain
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
           toolchain: nightly
+
+      - name: Install Rust Components
+        run: |
+          rustup component add rust-src llvm-tools-preview
+          rustup target add x86_64-unknown-none
+
+      - name: Configure Cargo for `build-std`
+        run: |
+          mkdir -p .cargo
+          echo '[unstable]' > .cargo/config.toml
+          echo 'build-std = ["core", "alloc"]' >> .cargo/config.toml
+
       - name: Install Bootimage
         run: cargo install bootimage --debug
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-      - name: Install Rust Components
-        run: rustup component add rust-src llvm-tools-preview
-
-      - name: Install Rust Target (x86_64-unknown-none)
-        run: rustup target add x86_64-unknown-none
-
-      - name: Install Rust Source & Required Components
-        run: rustup component add rust-src llvm-tools-preview
-
-      - name: Set Up Cargo to Use `build-std`
-        run: echo '[unstable]\nbuild-std = ["core", "alloc"]' >> .cargo/config.toml
 
       - name: Build Kernel
-        run: cargo run
+        run: cargo run --target x86_64-unknown-none
 
       - name: Run `cargo bootimage`
-        uses: actions-rs/cargo@v1
-        with:
-          command: bootimage
+        run: cargo bootimage --target x86_64-unknown-none
 
       # Install QEMU for testing
       - name: Install QEMU (Linux)
@@ -70,8 +96,6 @@ jobs:
       - name: Install QEMU (macOS)
         run: brew install qemu
         if: runner.os == 'macOS'
-        env:
-          HOMEBREW_NO_AUTO_UPDATE: 1
       - name: Install QEMU (Windows)
         run: |
           choco install qemu --version 2021.5.5
@@ -82,7 +106,7 @@ jobs:
         run: qemu-system-x86_64 --version
 
       - name: Run Tests
-        run: cargo test --no-fail-fast
+        run: cargo test --target x86_64-unknown-none --no-fail-fast
 
   check_formatting:
     name: Check Formatting
@@ -90,6 +114,7 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+
       - name: Install Rust Toolchain
         uses: actions-rs/toolchain@v1
         with:
@@ -97,11 +122,9 @@ jobs:
           toolchain: nightly
           components: rustfmt
           override: true
+
       - name: Run `cargo fmt`
-        uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
+        run: cargo fmt --all -- --check
 
   clippy:
     name: Lint with Clippy
@@ -109,6 +132,7 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+
       - name: Install Rust Toolchain
         uses: actions-rs/toolchain@v1
         with:
@@ -116,29 +140,6 @@ jobs:
           toolchain: nightly
           components: clippy, rust-src
           override: true
+
       - name: Run `cargo clippy`
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-
-  deploy:
-    name: Deploy Selected Files
-    needs: test  # Only runs after tests pass
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Configure Git
-        run: |
-          git config --global user.name "ishaankx"
-          git config --global user.email "kataraishaan@gmail.com"
-
-      - name: Commit and Push Selected Files
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          git checkout Wolve
-          git add <your_files_or_directory>
-          git commit -m "Automated deployment from GitHub Actions"
-          git push https://x-access-token:${GITHUB_TOKEN}@github.com/ishaankx/xatnys.git Wolve
+        run: cargo clippy --target x86_64-unknown-none
