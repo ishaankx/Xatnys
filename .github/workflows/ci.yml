@@ -1,0 +1,53 @@
+name: Rust Microkernel CI/CD
+
+on:
+  push:
+    branches: [Wolve]
+  pull_request:
+    branches: [Wolve]
+
+jobs:
+  build:
+    name: Build and Test OS
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain
+        run: |
+          rustup set profile minimal
+          rustup update nightly
+          rustup default nightly
+          rustup target add x86_64-unknown-none
+
+      - name: Install Bootimage
+        run: cargo install bootimage
+
+      - name: Build Kernel
+        run: cargo run
+
+      - name: Run Tests with Bootimage
+        run: cargo test --no-fail-fast
+
+  deploy:
+    name: Deploy to GitHub
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "ishaankx"
+          git config --global user.email "kataraishaan@gmail.com"
+
+      - name: Commit and Push Selected Files
+        run: |
+          git checkout Wolve
+          git add .
+          git commit -m "Automated deployment from GitHub Actions"
+          git push origin Wolve
