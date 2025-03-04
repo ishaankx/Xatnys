@@ -1,41 +1,121 @@
-name: Rust Microkernel CI/CD
+name: Xatnys CI/CD
 
 on:
   push:
-    branches: [Wolve]
+    branches:
+      - Wolve
   pull_request:
-    branches: [Wolve]
+    branches:
+      - Wolve
+  schedule:
+    - cron: '40 3 * * *'  # Runs daily at 3:40 AM UTC
+  workflow_dispatch:  # Allows manual runs
 
 jobs:
-  build:
-    name: Build and Test OS
+  check:
+    name: Code Check
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-
       - name: Install Rust Toolchain
-        run: |
-          rustup set profile minimal
-          rustup update nightly
-          rustup default nightly
-          rustup target add x86_64-unknown-none
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: nightly
+      - name: Install `rust-src`
+        run: rustup component add rust-src
+      - name: Run `cargo check`
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
 
+  test:
+    name: Build & Test Kernel
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Rust Toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: nightly
       - name: Install Bootimage
-        run: cargo install bootimage
+        run: cargo install bootimage --debug
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      - name: Install Rust Components
+        run: rustup component add rust-src llvm-tools-preview
 
       - name: Build Kernel
         run: cargo run
 
-      - name: Run Tests with Bootimage
+      - name: Run `cargo bootimage`
+        uses: actions-rs/cargo@v1
+        with:
+          command: bootimage
+
+      # Install QEMU for testing
+      - name: Install QEMU (Linux)
+        run: sudo apt update && sudo apt install qemu-system-x86
+        if: runner.os == 'Linux'
+      - name: Install QEMU (macOS)
+        run: brew install qemu
+        if: runner.os == 'macOS'
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+      - name: Install QEMU (Windows)
+        run: |
+          choco install qemu --version 2021.5.5
+          echo "$Env:Programfiles\qemu" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        if: runner.os == 'Windows'
+        shell: pwsh
+      - name: Print QEMU Version
+        run: qemu-system-x86_64 --version
+
+      - name: Run Tests
         run: cargo test --no-fail-fast
 
-  deploy:
-    name: Deploy to GitHub
-    needs: build
+  check_formatting:
+    name: Check Formatting
     runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      - name: Install Rust Toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: nightly
+          components: rustfmt
+          override: true
+      - name: Run `cargo fmt`
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --all -- --check
 
+  clippy:
+    name: Lint with Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      - name: Install Rust Toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: nightly
+          components: clippy, rust-src
+          override: true
+      - name: Run `cargo clippy`
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+
+  deploy:
+    name: Deploy Selected Files
+    needs: test  # Only runs after tests pass
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -46,8 +126,10 @@ jobs:
           git config --global user.email "kataraishaan@gmail.com"
 
       - name: Commit and Push Selected Files
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git checkout Wolve
-          git add .
+          git add <your_files_or_directory>
           git commit -m "Automated deployment from GitHub Actions"
-          git push origin Wolve
+          git push https://x-access-token:${GITHUB_TOKEN}@github.com/ishaankx/xatnys.git Wolve
